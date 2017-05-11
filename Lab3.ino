@@ -62,6 +62,8 @@ bool garajeCerrado = true;
 int estadoDelSuiche = 0;
 bool puertaCerrada;                   
 
+bool brecha;
+
 // ----------- contraseñas Iniciales ------------
 
 
@@ -79,8 +81,8 @@ String mensajeDeInsersion = "C. Alarma:";
 String mensajeDeInsersion1 = "C. Garage:";
 
 String notificacion = "Accion no Disp.";
-String codigoErroneo = "- Error -";
-String reinicio = "C. Maestro";
+String codigoErroneo = "  - Error -  ";
+String reinicio = "SISTEMA BLOQ. ";
 
 String alarmaPrendida = "A: ON";        // Alarma prendida
 String alarmaApagada = "A: OFF";
@@ -163,6 +165,7 @@ void loop() {
   statusDelCodigoIngresado();
 
   desplegar(); 
+  reproducirAlarma();
 
   if(stringComplete){
     Serial.println(inputString);
@@ -434,7 +437,7 @@ if(!garajeCerrado){
 
 void statusDelCodigoIngresado(){            // metodo que evalua el codigo dependiedo del estado (boton seleccionado del menu)
 
-  if(estadoA){
+  if(estadoA ){
 
    if(alerta.equals(vacio)){    
       setBanner(mensajeDeInsersion, 0);    // alerta estara vacio cuando se acabe el tiempo de notificacion        
@@ -776,6 +779,7 @@ void desplegar(){
 void reproducirTono(){                              // previo al llamado de este tono, siempre debo de configurar la variable "error"
 
     Timer1.initialize(500000);
+    Timer1.detachInterrupt();
     Timer1.attachInterrupt(noMusic);    
 }
 
@@ -790,6 +794,36 @@ void noMusic(){
     sonido();
     sono ++;    
   }
+}
+
+void reproducirAlarma(){                            // este va en el principal 
+
+    if(alarmaActiva){
+      
+      if(!puertaCerrada || !garajeCerrado){
+
+          brecha = true;
+          Timer1.initialize(500000);
+          Timer1.detachInterrupt();
+          Timer1.attachInterrupt(alarma);      
+          
+      } else{
+
+          brecha = false;  
+      }
+    }        
+}
+
+void alarma(){
+
+    if(brecha){
+
+      sonido();
+      
+    } else {
+
+      Timer1.stop();
+    }  
 }
 
 void sonido(){
