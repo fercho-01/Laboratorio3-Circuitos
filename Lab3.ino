@@ -1,23 +1,36 @@
-#include <Keypad.h>
+       #include <Keypad.h>
 #include <Wire.h>
 #include "rgb_lcd.h"
 #include <Servo.h>
+#include "TimerOne.h"
 
-rgb_lcd lcd;
 const byte Filas = 4; 
 const byte Cols = 4;  
 
 int posicion = 0;
 char teclaAnterior;
 int contador = -1;
-bool estoyMenuPrincipal = false;
+
 byte Pins_Filas[] = {9, 10, 11, 6};     
 byte Pins_Cols[] = { 5, 4, 3, 2};
+
+
+// -----------  Perifericos ---------------
+
+
+const int buzzer = 13;  // buzzer to arduino pin 9
+int sono = 0;           // el numero de veces requerido para que se reproduzca el sonido
+bool error;
+
 const int pinTouch = 8;
 const int pinServo = 7;
-Servo myServo;
-//  ----------- Estados ------------
 
+Servo myServo;
+rgb_lcd lcd;
+
+//  --------------  Estados  -------------
+
+bool estoyMenuPrincipal = false;
 
 bool estadoA = false;                     // variables que indican si estoy en la pantalla del boton
 bool estadoB = false;                     // del menu seleccionado
@@ -43,11 +56,16 @@ String codigo_1 = "";
 String codigo_2 = "";
 String codigoMaestro = "2";
 
-bool alarmaActiva = false;
+bool alarmaActiva = true;
 bool garajeCerrado = true;
 
 int estadoDelSuiche = 0;
 bool puertaCerrada;                   
+
+bool brecha;
+int conteoBrecha = 0;
+
+int posicionDelBanner = 0;
 
 // ----------- contraseñas Iniciales ------------
 
@@ -59,15 +77,15 @@ bool codigoAlarma = false;
 bool codigoApertura = false;
 
 
-// ----------- Mensajes del Sistema ------------
+// ----------- Mensajes del Sistema -------------
 
 
 String mensajeDeInsersion = "C. Alarma:";
 String mensajeDeInsersion1 = "C. Garage:";
 
 String notificacion = "Accion no Disp.";
-String codigoErroneo = "- Error -";
-String reinicio = "C. Maestro";
+String codigoErroneo = "  - Error -  ";
+String reinicio = "SISTEMA BLOQ. ";
 
 String alarmaPrendida = "A: ON";        // Alarma prendida
 String alarmaApagada = "A: OFF";
@@ -78,8 +96,9 @@ String GarageAbierto =  "G: OPN";
 String PuertaCerrada = "D: CSD" ;        // puerta cerrada 
 String PuertaAbierta = "D: OPN";
 
+String erroresRestantes = "T:";           // errores restantes
 
-// ----------- notificaciones ------------
+// ----------- notificaciones temporales  --------
 
 
 unsigned int holdTime = 2000;              // 3 segundos para enviar el codigo completo
@@ -124,15 +143,19 @@ String Letras [ 10][ 4 ] =
 String inputString = "";
 boolean stringComplete = false;
 String serialPass = "123456";
+String msg = "";
 
 void setup() {
+  
    Serial.begin(9600) ;
-   keypad.addEventListener(keypadEvent); //add an event listener for this keypad
+   keypad.addEventListener(keypadEvent); 
    keypad.setHoldTime(holdTime);
+
+   pinMode(buzzer, OUTPUT); 
        
-    lcd.begin(16, 2); 
-    lcd.setRGB(200, 200, 100);
-    setMsg("_");
+   lcd.begin(16, 2); 
+   lcd.setRGB(200, 200, 100);
+   setMsg("_");
     
 }
 
@@ -147,9 +170,11 @@ void loop() {
   statusDelCodigoIngresado();
 
   desplegar(); 
+  reproducirAlarma();
 
   if(stringComplete){
-    Serial.println(inputString);
+    
+    //Serial.println(inputString);
     stringComplete = false;
     String comando = inputString.substring(0,2);
     String pass = inputString.substring(3,9);
@@ -158,23 +183,28 @@ void loop() {
       newPass = inputString.substring(10,16);
     }
     
+    
     if(configuracionCompleta){
+      
       if(pass.equals(serialPass)){
+        
         if(comando.equals("OG")){
           //Abrir garaje
           if(garajeCerrado == true){
             controlarServo(180,true);
             garajeCerrado = false;
           }else{
-            Serial.println("El garaje esta abierto");
+            msg = "El garaje esta abierto";
+            printMessage(msg);
+            
+            //Serial.println("El garaje esta abierto");
           }
         }else if(comando.equals("CG")){
-          //Cerrar garaje
           if(garajeCerrado == false){
             controlarServo(180,false);
             garajeCerrado = true;
           }else{
-            Serial.println("El garaje esta cerrado");
+            //Serial.println("El garaje esta cerrado");
           }
         }else if(comando.equals("EA")){
           //Activar alarma
@@ -182,7 +212,7 @@ void loop() {
             estadoA = true;
             alarmaActiva = true;
           }else{
-            Serial.println("La alarma esta activa");
+            //Serial.println("La alarma esta activa");
           }
         }else if(comando.equals("DA")){
           //Desactivar alarma
@@ -190,7 +220,7 @@ void loop() {
             estadoA = false;
             alarmaActiva = false;
           }else{
-            Serial.println("La alarma esta desactivada");
+            //Serial.println("La alarma esta desactivada");
           }
         }else if(comando.equals("MG")){
             //Cambiar contraseña del garaje
@@ -198,7 +228,7 @@ void loop() {
               codigo_2 = newPass;
               Serial.println("Contraseña del garaje cambiada");
             }else{
-              Serial.println("Contraseña invalida");
+              //Serial.println("Contraseña invalida");
             }
         }else if(comando.equals("MA")){
           //Cambiar contraseña de la alarma
@@ -206,19 +236,22 @@ void loop() {
               codigo_1 = newPass;
               Serial.println("Contraseña de la alarma cambiada");
           }else{
-              Serial.println("Contraseña invalida");
+              //Serial.println("Contraseña invalida");
           }
         }else if(comando.equals("MS")){
           if(!newPass.equals("") && newPass.length()==6){
               serialPass = newPass;
               Serial.println("Contraseña del serial cambiada");
           }else{
-              Serial.println("Contraseña invalida");
+              //Serial.println("Contraseña invalida");
           }
         }else if(comando.equals("RT")){
           //Reiniciar el sistema
-          if(!newPass.equals("") && newPass.length()==6){
+          newPass = inputString.charAt(10);
+          //Serial.println(newPass);
+          if(!newPass.equals("")){
               if(newPass.equals(codigoMaestro)){
+                //Serial.println("Entre al reinicio");
                 reinicioDelSistema = false;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
                 configuracionCompleta = false;
         
@@ -228,16 +261,19 @@ void loop() {
                 codigoAlarma = false;
                 codigoApertura = false;
            
-                limpiarBanner();
+                 limpiarBanner();
+                 limpiarFilaDeInsercion();
+              
+                  estoyMenuPrincipal = false;
               }else{
-                Serial.println("Error codigo invalido");
+                //Serial.println("Error codigo invalido");
               }
           }else{
-              Serial.println("Contraseña invalida");
+              //Serial.println("Contraseña invalida");
           }
         }
-      }else{
-        Serial.println("Contraseña del serial invalida");
+        
+        
       }
     }else{
       Serial.println("Por favor inicie el sistema");
@@ -254,19 +290,22 @@ void keypadEvent(KeypadEvent key){
     
     case PRESSED:
     
-    if(!estoyMenuPrincipal){
-    if(key=='#'){
+    if(!estoyMenuPrincipal && alerta.equals(vacio)){
 
+    //Serial.println("entre");
+    if(key=='#'){
    
         if(contador>-1){
+          
             int fila= teclaAnterior -'0';
             mensaje += Letras[fila][contador];
             String miLetra = Letras[fila][contador];
             contador=-1;
-            setMsg(miLetra);
+            String asterisco = "*";
+            setMsg(asterisco);
             posicion++;
             setMsg("_");
-            Serial.println(mensaje);
+            //Serial.println(mensaje);
           }
         }
         else if(contador==-1 &&key!='*' && key != 'A' && key != 'B'       // no guarde las variables del menu
@@ -279,6 +318,7 @@ void keypadEvent(KeypadEvent key){
           setMsg(miLetra);
         
         }else if(contador>=0){
+          
           if(teclaAnterior == key){
             contador = (contador+1)%4;
             teclaAnterior = key;
@@ -295,11 +335,11 @@ void keypadEvent(KeypadEvent key){
         }
 
     if(key=='*'){
-      Serial.println(contador);
+      //Serial.println(contador);
       //Borra en una posicion anterior
       if(contador==-1){
         mensaje = mensaje.substring(0,mensaje.length()-1);
-        Serial.println(mensaje);
+        //Serial.println(mensaje);
         setMsg(" ");          
         posicion--;
   
@@ -313,7 +353,7 @@ void keypadEvent(KeypadEvent key){
         contador=-1;
       }else{
         //Borra en la posicion actual
-        Serial.println(mensaje);
+        //Serial.println(mensaje);
         setMsg("_");
         contador=-1;
       }
@@ -375,7 +415,7 @@ void keypadEvent(KeypadEvent key){
 
 void activarAlarma(){
  
-  if(!alarmaActiva){
+  if(!alarmaActiva && !estadoB && !estadoC && !estadoD ){
 
     if(contadorEstadoA == 0){   // si es la primera vez que presiona el boton, ejecute su logica correspondiente
   
@@ -401,7 +441,7 @@ void activarAlarma(){
 
 void desactivarAlarma(){
 
-  if(alarmaActiva){
+  if(alarmaActiva && !estadoA && !estadoC && !estadoD){
 
     if(contadorEstadoB == 0){   // si es la primera vez que presiona el boton, ejecute su logica correspondiente
 
@@ -414,7 +454,6 @@ void desactivarAlarma(){
       estadoB = false;
       contadorEstadoB = 0;
       errores = 0;
-
 
       mensaje = "";             // caso tal que el usuario haya ingresado algo y retornado al menu principal
       limpiarFilaDeInsercion();         
@@ -429,7 +468,7 @@ void desactivarAlarma(){
 
 void abrirGaraje(){
 
-if(garajeCerrado){
+if(garajeCerrado && !estadoA && !estadoB && !estadoD){
 
     if(contadorEstadoC == 0){
 
@@ -443,7 +482,6 @@ if(garajeCerrado){
       contadorEstadoC = 0;
       errores = 0;
 
-
       mensaje = "";             // caso tal que el usuario haya ingresado algo y retornado al menu principal
       limpiarFilaDeInsercion(); 
     }
@@ -456,7 +494,7 @@ if(garajeCerrado){
 
 void cerrarGaraje(){
 
-if(!garajeCerrado){
+if(!garajeCerrado && !estadoA && !estadoB && !estadoC){
 
     if(contadorEstadoD == 0){
 
@@ -486,10 +524,16 @@ if(!garajeCerrado){
 
 void statusDelCodigoIngresado(){            // metodo que evalua el codigo dependiedo del estado (boton seleccionado del menu)
 
-  if(estadoA){
+  if(estadoA ){
 
    if(alerta.equals(vacio)){    
-      setBanner(mensajeDeInsersion, 0);    // alerta estara vacio cuando se acabe el tiempo de notificacion        
+      setBanner(mensajeDeInsersion, 0);    // alerta estara vacio cuando se acabe el tiempo de notificacion
+      
+      setBanner(erroresRestantes, 13);
+      int intentosRestantes = 3 - errores; 
+      String errores = (String) intentosRestantes;
+      setBanner(errores, 15);
+      
       lcd.setRGB(200, 200, 100);
     }
   
@@ -504,7 +548,10 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
         codigoIngresado = "";
          
         limpiarBanner();
-        // añadir sonido, 
+
+        error = false;
+        reproducirTono();                     // repdroduzca el sonido
+ 
   
       } else {
   
@@ -514,7 +561,8 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
         alerta = codigoErroneo;   
         errores ++;   
 
-        // AÑADIR SONIDO
+        error = true;
+        reproducirTono();
       }
     }
   }
@@ -525,6 +573,11 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
     if(alerta.equals(vacio)){
       setBanner(mensajeDeInsersion, 0);    // alerta estara vacio cuando se acabe el tiempo de notificacion  
       lcd.setRGB(200, 200, 100);
+         
+      setBanner(erroresRestantes, 13);
+      int intentosRestantes = 3 - errores; 
+      String errores = (String) intentosRestantes;
+      setBanner(errores, 15);
     }
 
     if(!codigoIngresado.equals(vacio)){
@@ -538,8 +591,9 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
         codigoIngresado = "";
            
         limpiarBanner();
-        
-        //  AÑADIR SONIDO
+
+        error = false;
+        reproducirTono();                     // repdroduzca el sonido        
   
       } else {
   
@@ -548,6 +602,10 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
   
         alerta = codigoErroneo;
         errores ++;      
+
+        error = true;
+        reproducirTono();                     // repdroduzca el sonido        
+
       }
     }
   }
@@ -559,6 +617,11 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
     if(alerta.equals(vacio)){      
       setBanner(mensajeDeInsersion1, 0);           // alerta estara vacio cuando se acabe el tiempo de notificacion  
       lcd.setRGB(200, 200, 100);
+
+      setBanner(erroresRestantes, 13);
+      int intentosRestantes = 3 - errores; 
+      String errorMessage = (String) intentosRestantes;
+      setBanner(errorMessage, 15);
     }
 
     if(!codigoIngresado.equals(vacio)){
@@ -576,8 +639,9 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
            
         limpiarBanner();
 
-        
-        //  AÑADIR SONIDO
+        error = false;
+        reproducirTono();                     // repdroduzca el sonido   
+               
   
       } else {                                  // si el codigo ingresado no es igual, despliego un mensaje
   
@@ -585,7 +649,10 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
         codigoIngresado = "";
   
         alerta = codigoErroneo;
-        errores ++;      
+        errores ++;   
+
+        error = true;
+        reproducirTono();                     // repdroduzca el sonido   
       }
     }
     
@@ -597,6 +664,11 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
     if(alerta.equals(vacio)){      
       setBanner(mensajeDeInsersion1, 0);           // alerta estara vacio cuando se acabe el tiempo de notificacion  
       lcd.setRGB(200, 200, 100);
+         
+      setBanner(erroresRestantes, 13);
+      int intentosRestantes = 3 - errores; 
+      String errores = (String) intentosRestantes;
+      setBanner(errores, 15);
     }
 
     if(!codigoIngresado.equals(vacio)){
@@ -611,8 +683,10 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
         codigoIngresado = "";
            
         limpiarBanner();
+
+        error = false;
+        reproducirTono();                     // repdroduzca el sonido   
         
-        //  AÑADIR SONIDO
   
       } else {                                  // si el codigo ingresado no es igual, despliego un mensaje
   
@@ -620,7 +694,10 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
         codigoIngresado = "";
   
         alerta = codigoErroneo;
-        errores ++;      
+        errores ++;
+
+        error = true;
+        reproducirTono();                     // repdroduzca el soni                
       }
     }
     
@@ -637,7 +714,7 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
 
       if(codigoIngresado.equals(codigoMaestro)){
   
-        reinicioDelSistema = false;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
+        reinicioDelSistema = false;              // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
         configuracionCompleta = false;
         
         mensaje = "";                           // reinicie otra vez las variables para insercion posterior
@@ -648,19 +725,69 @@ void statusDelCodigoIngresado(){            // metodo que evalua el codigo depen
            
         limpiarBanner();
         
-        //  AÑADIR SONIDO
+        error = false;
+        reproducirTono();                     // repdroduzca el sonido   
   
-      } else {                                     // si el codigo ingresado no es igual, despliego un mensaje
+      } else {                                // si el codigo ingresado no es igual, despliego un mensaje
+  
+        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
+        codigoIngresado = "";
+  
+        alerta = codigoErroneo;
+
+        error = true;
+        reproducirTono();                     // repdroduzca el sonido   
+      }
+    }   
+  }
+
+
+  if(brecha){                                 // si hubo una brecha en el sistema, desactivela.
+
+    if(alerta.equals(vacio)){
+
+
+        setBanner(mensajeDeInsersion, 0);           // alerta estara vacio cuando se acabe el tiempo de notificacion  
+        lcd.setRGB(200, 200, 100);
+           
+        setBanner(erroresRestantes, 13);
+        int intentosRestantes = 3 - errores; 
+        String errores = (String) intentosRestantes;
+        setBanner(errores, 15);
+      }
+
+    if(!codigoIngresado.equals(vacio)){
+
+      if(codigoIngresado.equals(codigo_1)){
+        
+        
+        alarmaActiva = false;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
+        brecha = false; 
+        
+        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
+        codigoIngresado = "";
+           
+        limpiarBanner();
+
+        error = false;
+        reproducirTono();          
+        
+  
+      } else {                                  // si el codigo ingresado no es igual, despliego un mensaje
   
         mensaje = "";                           // reinicie otra vez las variables para insercion posterior
         codigoIngresado = "";
   
         alerta = codigoErroneo;
+        errores ++;
+
+        error = true;
+        reproducirTono();                     // repdroduzca el soni                
       }
     }
     
   }
-  
+    
 }
 
 
@@ -675,7 +802,7 @@ if(!configuracionCompleta){
     
     longitud = mensaje.length();
 
-    if(longitud == 3){                    // el codigo tiene una longitud de 6 caracteres         
+    if(longitud == 6){                    // el codigo tiene una longitud de 6 caracteres         
 
       codigo_1 = mensaje;                 // guarde el mensaje en otra posicion global
      
@@ -696,7 +823,7 @@ if(!configuracionCompleta){
     setBanner(mensajeDeInsersion1, 0);
     longitud = mensaje.length();
 
-    if(longitud == 1){
+    if(longitud == 6){
 
     codigo_2 = mensaje;
 
@@ -736,9 +863,11 @@ void statusDelSistema(){                              // visualizacion en pantal
   
   if(configuracionCompleta && !estadoA &&
         !estadoB && !estadoC && !estadoD 
-        && alerta.equals(vacio) && !reinicioDelSistema){     
+        && alerta.equals(vacio) && !reinicioDelSistema 
+         && !brecha){     
 
     estoyMenuPrincipal = true;
+    conteoBrecha = 0;
     
     if(alarmaActiva){
 
@@ -787,7 +916,7 @@ void desplegar(){
     lcd.setRGB(250, 20, 0);                        // cambie el color del display al color rojo
   
   } else {
-    
+      
     tiempoActual= millis();
     if(tiempoActual - tiempoInicial < tiempoDeDespliegue ){     // ¿ ya pasaron los tres segundos ?
 
@@ -803,7 +932,109 @@ void desplegar(){
    }    
   }    
 }
+
+
+void reproducirTono(){                              // previo al llamado de este tono, siempre debo de configurar la variable "error"
+
+    Timer1.initialize(500000);
+    Timer1.detachInterrupt();
+    Timer1.attachInterrupt(noMusic);    
+}
+
+void noMusic(){
   
+  if(sono==2){
+    Timer1.stop();
+    sono=0;
+
+    if(brecha){                                   // en caso tal que el sonido de la alarma este activo, reinicie el tono que anteriormente
+                                                  // se este reproduciendo
+      error = false;
+      Timer1.initialize(500000);
+      Timer1.detachInterrupt();
+      Timer1.attachInterrupt(alarma);
+    }
+    
+  }else{
+    
+    sonido();
+    sono ++;        
+  }
+}
+
+void reproducirAlarma(){                            // este va en el principal 
+
+    if(alarmaActiva && configuracionCompleta){
+      
+      if(!puertaCerrada || !garajeCerrado){
+
+          brecha = true;
+
+          if(conteoBrecha == 0){
+            
+              limpiarBanner();
+              limpiarFilaDeInsercion();
+              conteoBrecha ++;
+              estoyMenuPrincipal = false;
+
+          }
+          
+          Timer1.initialize(500000);
+          Timer1.detachInterrupt();
+          Timer1.attachInterrupt(alarma);      
+          
+      } 
+      /*
+      else{
+
+          brecha = false;  
+      }
+      */
+    }        
+}
+
+void alarma(){
+
+    if(brecha){
+
+      sonido();
+      
+    } else {
+
+      Timer1.stop();
+    }  
+}
+
+void sonido(){
+     
+  if(error){
+        tone(buzzer, 440, 83);
+    }else{
+      
+        tone(buzzer, 3951, 100); 
+    }    
+}
+
+//true derecha, false izquierda
+void controlarServo(int grados,bool sentido){
+  
+  //myServo.write(grados);
+  myServo.attach(pinServo);
+  if(sentido){
+    for(int i=0;i<=grados;i++){
+      myServo.write(i);
+    }
+    
+  }else{
+   for(int i=grados;i>0;i--){
+      myServo.write(i);
+    } 
+  }
+  delay(100);
+  myServo.detach();
+ 
+}
+
 
 void estadoDeSensores(){
 
@@ -817,10 +1048,23 @@ void estadoDeSensores(){
     if(estadoDelSuiche == LOW ){
       puertaCerrada = true;
       //Serial.println(estadoPuertaAnterior);
-    }
-  
+    }  
 }
 
+
+void serialEvent() {
+  while (Serial.available()) {
+    // get the new byte:
+    char inChar = (char)Serial.read();
+    // add it to the inputString:
+    inputString += inChar;
+    // if the incoming character is a newline, set a flag
+    // so the main loop can do something about it:
+    if (inChar == '\n') {
+      stringComplete = true;
+    }
+  }
+}
 
 void setMsg(String msg){                          // imprima el mensaje en la fila 1, en la posicion de la variable global "posicion"
   lcd.setCursor(posicion, 1);
@@ -837,6 +1081,11 @@ void setBanner2(String msg, int pos){             // imprima el mensaje en la fi
 
   lcd.setCursor(pos,1);
   lcd.print(msg);
+}
+
+void movingBanner(){
+   
+    lcd.scrollDisplayRight();  
 }
 
 void limpiarFilaDeInsercion(){                     // elimine todo lo que haya en la fila 1. UTILIZA UNA VARIABLE GLOBAL
@@ -858,37 +1107,8 @@ void limpiarBanner(){
 
 }
 
-//true derecha, false izquierda
-void controlarServo(int grados,bool sentido){
-  //myServo.write(grados);
-  myServo.attach(pinServo);
-  if(sentido){
-    for(int i=0;i<=grados;i++){
-      myServo.write(i);
-    }
-    
-  }else{
-   for(int i=grados;i>0;i--){
-      myServo.write(i);
-    } 
-  }
-  delay(100);
-  myServo.detach();
- 
+void printMessage(String message){
+  
+  Serial.println(message);
 }
-
-void serialEvent() {
-  while (Serial.available()) {
-    // get the new byte:
-    char inChar = (char)Serial.read();
-    // add it to the inputString:
-    inputString += inChar;
-    // if the incoming character is a newline, set a flag
-    // so the main loop can do something about it:
-    if (inChar == '\n') {
-      stringComplete = true;
-    }
-  }
-}
-
 
