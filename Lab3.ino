@@ -153,6 +153,9 @@ void loop() {
     stringComplete = false;
     String comando = inputString.substring(0,2);
     String pass = inputString.substring(3,9);
+    if(inputString.length()>10){
+      String newPass = inputString.substring(10,16);
+    }
     
     if(configuracionCompleta){
       if(pass.equals(serialPass)){
@@ -165,11 +168,24 @@ void loop() {
             Serial.println("El garaje esta abierto");
           }
         }else if(comando.equals("CG")){
+          //Cerrar garaje
           if(garajeCerrado == false){
             controlarServo(180,false);
             garajeCerrado = true;
           }else{
             Serial.println("El garaje esta cerrado");
+          }
+        }else if(comando.equals("EA")){
+          if(!alarmaActiva){
+            estadoA = true;
+            alarmaActiva = true;
+          }else{
+            Serial.
+          }
+        }else if(comando.equals("DA")){
+          if(alarmaActiva){
+            estadoA = false;
+            alarmaActiva = false;
           }
         }
       }
