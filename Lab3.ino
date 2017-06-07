@@ -1,1114 +1,442 @@
-       #include <Keypad.h>
-#include <Wire.h>
-#include "rgb_lcd.h"
-#include <Servo.h>
+#include <TFT.h>  // Arduino LCD library
+#include <SPI.h>
 #include "TimerOne.h"
 
-const byte Filas = 4; 
-const byte Cols = 4;  
 
-int posicion = 0;
-char teclaAnterior;
-int contador = -1;
+#define TFT_CS     10
+#define TFT_RST    9 
+#define TFT_DC     8
 
-byte Pins_Filas[] = {9, 10, 11, 6};     
-byte Pins_Cols[] = { 5, 4, 3, 2};
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS,  TFT_DC, TFT_RST);
 
+#define TFT_SCLK 13   
+#define TFT_MOSI 11   
+#define SD_CS    4  // Chip select line for SD card
 
-// -----------  Perifericos ---------------
+const int buzzer = 6;
 
+int myWidth = tft.width();
+int myHeight = tft.height();
 
-const int buzzer = 13;  // buzzer to arduino pin 9
-int sono = 0;           // el numero de veces requerido para que se reproduzca el sonido
-bool error;
+// --------------- Barras -----------------
+ 
+// variables for the position of the ball and paddle
+int paddle1 = 0;
+int paddle2 = 0;
+int oldPaddle1, oldPaddle2;
 
-const int pinTouch = 8;
-const int pinServo = 7;
+// --------------- pelota -----------------
 
-Servo myServo;
-rgb_lcd lcd;
+int ballDirectionX = 1;
+int ballDirectionY = 1;
 
-//  --------------  Estados  -------------
+int movingSpeed = 0;
+int ballSpeed = 2; // lower numbers are faster
+bool rebote1 = false;
+bool rebote2 = false;
+int highestFactor = 0;
+bool tieneVelocidad = false;
 
-bool estoyMenuPrincipal = false;
+int ballX = myWidth/2; 
+int ballY = myHeight/2;
+int oldBallX, oldBallY;
 
-bool estadoA = false;                     // variables que indican si estoy en la pantalla del boton
-bool estadoB = false;                     // del menu seleccionado
-bool estadoC = false;
-bool estadoD = false;
+// --------------- Puntaje -----------------
 
-int contadorEstadoA = 0;
-int contadorEstadoB = 0;
-int contadorEstadoC = 0;
-int contadorEstadoD = 0;
+int pointP1=0, oldPointP1 = 0 , pointP2=0, oldPointP2 = 0;
+bool point=false;
+bool mostrarPuntaje = false;
+int contadorPuntaje = 0;
+bool refresh = false;
 
-int errores = 0;
-bool reinicioDelSistema = false;
+int player1ScoreX = 20; 
+int player1ScoreY = 30; 
 
-//  ----------- variables globales ------------
+int player2ScoreX = 90;
+int player2ScoreY = 30;
 
-
-String mensaje = "";
-String codigoIngresado = "";
-int longitud = 0;                         // longitud del mensaje
-
-String codigo_1 = "";
-String codigo_2 = "";
-String codigoMaestro = "2";
-
-bool alarmaActiva = true;
-bool garajeCerrado = true;
-
-int estadoDelSuiche = 0;
-bool puertaCerrada;                   
-
-bool brecha;
-int conteoBrecha = 0;
-
-int posicionDelBanner = 0;
-
-// ----------- contraseñas Iniciales ------------
-
-
-bool primeraIteracion = true;
-bool configuracionCompleta = false;       
-
-bool codigoAlarma = false;
-bool codigoApertura = false;
-
-
-// ----------- Mensajes del Sistema -------------
-
-
-String mensajeDeInsersion = "C. Alarma:";
-String mensajeDeInsersion1 = "C. Garage:";
-
-String notificacion = "Accion no Disp.";
-String codigoErroneo = "  - Error -  ";
-String reinicio = "SISTEMA BLOQ. ";
-
-String alarmaPrendida = "A: ON";        // Alarma prendida
-String alarmaApagada = "A: OFF";
-
-String GarageCerrado =  "G: CSD";       // Garage cerrado
-String GarageAbierto =  "G: OPN";
-
-String PuertaCerrada = "D: CSD" ;        // puerta cerrada 
-String PuertaAbierta = "D: OPN";
-
-String erroresRestantes = "T:";           // errores restantes
-
-// ----------- notificaciones temporales  --------
-
-
-unsigned int holdTime = 2000;              // 3 segundos para enviar el codigo completo
-unsigned long tiempoActual = 0;
-unsigned long tiempoInicial = 0;
-unsigned long tiempoDeDespliegue = 1500;    // 3 segundos
-
-bool notaPorDesplegar = false; 
-
-String alerta = "";
-String vacio = "";
-
-// Teclado
-
-
-
-char Teclas [ Filas ][ Cols ] =
-    {
-        {'1','2','3','A'},
-        {'4','5','6','B'},
-        {'7','8','9','C'},
-        {'*','0','#','D'}
-     };
-
-String Letras [ 10][ 4 ] =
-    {
-        {"0","0","0","0"},
-        {"1","1","1","1"},
-        {"2","A","B","C"},
-        {"3","D","E","F"},
-        {"4","G","H","I"},
-        {"5","J","K","L"},
-        {"6","M","N","O"},
-        {"7","P","R","S"},
-        {"8","T","U","V"},
-        {"9","W","X","Y"}
-     };
-
-
- Keypad keypad = Keypad(makeKeymap(Teclas), Pins_Filas, Pins_Cols, Filas, Cols);
-
-String inputString = "";
-boolean stringComplete = false;
-String serialPass = "123456";
-String msg = "";
 
 void setup() {
-  
-   Serial.begin(9600) ;
-   keypad.addEventListener(keypadEvent); 
-   keypad.setHoldTime(holdTime);
+  Serial.begin(9600);
+  pinMode(buzzer, OUTPUT); 
 
-   pinMode(buzzer, OUTPUT); 
-       
-   lcd.begin(16, 2); 
-   lcd.setRGB(200, 200, 100);
-   setMsg("_");
-    
+  
+  tft.initR(INITR_BLACKTAB);        
+  tft.background(0, 0, 0);  
 }
 
 void loop() {
 
-  char key = keypad.getKey();
-  
-  inicializar();
-  
-  statusDelSistema();
-  estadoDeSensores();
-  statusDelCodigoIngresado();
-
-  desplegar(); 
-  reproducirAlarma();
-
-  if(stringComplete){
-    
-    //Serial.println(inputString);
-    stringComplete = false;
-    String comando = inputString.substring(0,2);
-    String pass = inputString.substring(3,9);
-     String newPass = "";
-    if(inputString.length()>10){
-      newPass = inputString.substring(10,16);
-    }
-    
-    
-    if(configuracionCompleta){
       
-      if(pass.equals(serialPass)){
-        
-        if(comando.equals("OG")){
-          //Abrir garaje
-          if(garajeCerrado == true){
-            controlarServo(180,true);
-            garajeCerrado = false;
-          }else{
-            msg = "El garaje esta abierto";
-            printMessage(msg);
-            
-            //Serial.println("El garaje esta abierto");
-          }
-        }else if(comando.equals("CG")){
-          if(garajeCerrado == false){
-            controlarServo(180,false);
-            garajeCerrado = true;
-          }else{
-            //Serial.println("El garaje esta cerrado");
-          }
-        }else if(comando.equals("EA")){
-          //Activar alarma
-          if(!alarmaActiva){
-            estadoA = true;
-            alarmaActiva = true;
-          }else{
-            //Serial.println("La alarma esta activa");
-          }
-        }else if(comando.equals("DA")){
-          //Desactivar alarma
-          if(alarmaActiva){
-            estadoA = false;
-            alarmaActiva = false;
-          }else{
-            //Serial.println("La alarma esta desactivada");
-          }
-        }else if(comando.equals("MG")){
-            //Cambiar contraseña del garaje
-            if(!newPass.equals("") && newPass.length()==6){
-              codigo_2 = newPass;
-              Serial.println("Contraseña del garaje cambiada");
-            }else{
-              //Serial.println("Contraseña invalida");
-            }
-        }else if(comando.equals("MA")){
-          //Cambiar contraseña de la alarma
-          if(!newPass.equals("") && newPass.length()==6){
-              codigo_1 = newPass;
-              Serial.println("Contraseña de la alarma cambiada");
-          }else{
-              //Serial.println("Contraseña invalida");
-          }
-        }else if(comando.equals("MS")){
-          if(!newPass.equals("") && newPass.length()==6){
-              serialPass = newPass;
-              Serial.println("Contraseña del serial cambiada");
-          }else{
-              //Serial.println("Contraseña invalida");
-          }
-        }else if(comando.equals("RT")){
-          //Reiniciar el sistema
-          newPass = inputString.charAt(10);
-          //Serial.println(newPass);
-          if(!newPass.equals("")){
-              if(newPass.equals(codigoMaestro)){
-                //Serial.println("Entre al reinicio");
-                reinicioDelSistema = false;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
-                configuracionCompleta = false;
-        
-                mensaje = "";                           // reinicie otra vez las variables para insercion posterior
-                codigoIngresado = "";
+  traducirPotenciometros();
 
-                codigoAlarma = false;
-                codigoApertura = false;
-           
-                 limpiarBanner();
-                 limpiarFilaDeInsercion();
-              
-                  estoyMenuPrincipal = false;
-              }else{
-                //Serial.println("Error codigo invalido");
-              }
-          }else{
-              //Serial.println("Contraseña invalida");
-          }
-        }
-        
-        
-      }
-    }else{
-      Serial.println("Por favor inicie el sistema");
-    }
-    inputString = "";
+  velocidad();
+  
+  //mostrarPuntaje();
+
+  if(!mostrarPuntaje){
+
+    dibujarPaletas();
+    dibujarPelota();
+    dibujarCancha();  
+    
+  } else{
+    
+    dibujarCancha;   
+    dibujarPuntaje();
   }
+  
 }
 
 
-void keypadEvent(KeypadEvent key){
+void dibujarPaletas(){
 
-  //Serial.println(key);
-  switch (keypad.getState()){
-    
-    case PRESSED:
-    
-    if(!estoyMenuPrincipal && alerta.equals(vacio)){
 
-    //Serial.println("entre");
-    if(key=='#'){
-   
-        if(contador>-1){
-          
-            int fila= teclaAnterior -'0';
-            mensaje += Letras[fila][contador];
-            String miLetra = Letras[fila][contador];
-            contador=-1;
-            String asterisco = "*";
-            setMsg(asterisco);
-            posicion++;
-            setMsg("_");
-            //Serial.println(mensaje);
-          }
-        }
-        else if(contador==-1 &&key!='*' && key != 'A' && key != 'B'       // no guarde las variables del menu
-                  && key != 'C' && key != 'D' ){
-
-          contador++;
-          teclaAnterior = key;
-          int fila= teclaAnterior -'0';
-          String miLetra = Letras[fila][contador];
-          setMsg(miLetra);
-        
-        }else if(contador>=0){
-          
-          if(teclaAnterior == key){
-            contador = (contador+1)%4;
-            teclaAnterior = key;
-            int fila= teclaAnterior -'0';
-            String miLetra = Letras[fila][contador];
-            setMsg(miLetra);
-          }else{
-            teclaAnterior=key;
-            contador=0;
-            int fila= teclaAnterior -'0';
-            String miLetra = Letras[fila][contador];
-            setMsg(miLetra);
-          }
-        }
-
-    if(key=='*'){
-      //Serial.println(contador);
-      //Borra en una posicion anterior
-      if(contador==-1){
-        mensaje = mensaje.substring(0,mensaje.length()-1);
-        //Serial.println(mensaje);
-        setMsg(" ");          
-        posicion--;
   
-        // falta borrar del mensaje la letra 
-        
-        if(posicion<0){
-          posicion=0;
-        }
-        
-        setMsg("_");
-        contador=-1;
-      }else{
-        //Borra en la posicion actual
-        //Serial.println(mensaje);
-        setMsg("_");
-        contador=-1;
-      }
-      
-    }
-    }
-   
-   if(key == 'A'){
-
-      limpiarBanner();
-      estoyMenuPrincipal = false;
-      limpiarFilaDeInsercion();
-      activarAlarma();      
-   }
-
-   if(key == 'B'){
-   
-      limpiarBanner();
-      estoyMenuPrincipal = false;
-      limpiarFilaDeInsercion();
-      desactivarAlarma();      
-   }
-
-   if(key == 'C'){
-   
-      limpiarBanner();
-      estoyMenuPrincipal = false;
-      limpiarFilaDeInsercion();
-      abrirGaraje();      
-   }
-
-   if(key == 'D'){
-   
-      limpiarBanner();
-      estoyMenuPrincipal = false;
-      limpiarFilaDeInsercion();
-      cerrarGaraje();      
-   }
-       
-    break;
-
-// ------------------------------------
-    case HOLD:
-
-    if(key == '#'){
-      
-      codigoIngresado = mensaje;        //guarde en una variable global lo que haya en mensaje 
-      mensaje = "";
-      
-      limpiarFilaDeInsercion();         // como hacer para salirse del menu ?
-    }
-
-    break;
+  tft.fill(0, 0, 0);                        // Borramos la posicion anterior de la barrita     
+  if (oldPaddle1 != paddle1) {              // si la barra se ha  movido, entonces borre la barra de la posicion anterior
+    tft.rect(oldPaddle1, 0, 20, 5);         // screen.rect(xStart, yStart, width, height)
+    point=false;
   }
+    if (oldPaddle2 != paddle2) {
+    tft.rect(oldPaddle2, myHeight-5, 20, 5);
+    point=false;
+  }
+
+  tft.fill(0, 255, 0);                      // dibujando la primera barra de color rojo
+  tft.rect(paddle1, 0, 20, 5);              
+  oldPaddle1 = paddle1;
   
-}  // end keyEvent()
+  //tft.fill(0, 255, 0);                      // dibujando la segunda barra de color verde
+  tft.rect(paddle2, myHeight-5, 20, 5);
+  oldPaddle2 = paddle2;
 
-
-
-void activarAlarma(){
  
-  if(!alarmaActiva && !estadoB && !estadoC && !estadoD ){
-
-    if(contadorEstadoA == 0){   // si es la primera vez que presiona el boton, ejecute su logica correspondiente
-  
-      setBanner(mensajeDeInsersion, 0);          
-      estadoA = true;
-      contadorEstadoA ++;
-      
-    }else {                   // si es la segunda vez que presiono el boton, devuelvase al menu principal
-
-      estadoA = false;
-      contadorEstadoA = 0;
-      errores = 0;
-      
-      mensaje = "";             // caso tal que el usuario haya ingresado algo y retornado al menu principal
-      limpiarFilaDeInsercion();         
-    }
-    
-  } else {
-
-      alerta = notificacion;      
-  }  
 }
 
-void desactivarAlarma(){
+void dibujarPelota(){
 
-  if(alarmaActiva && !estadoA && !estadoC && !estadoD){
+   // actualizacion y velocidad de la pelota
+  if (millis() % ballSpeed < 2 && !point) {
+    moveBall();
+  }
+}
 
-    if(contadorEstadoB == 0){   // si es la primera vez que presiona el boton, ejecute su logica correspondiente
+void traducirPotenciometros(){
 
-      setBanner(mensajeDeInsersion, 0);          
-      estadoB = true;
-      contadorEstadoB ++;      
-    
-    } else{                     // si es la segunda vez que presiono el boton, devuelvase al menu principal
-
-      estadoB = false;
-      contadorEstadoB = 0;
-      errores = 0;
-
-      mensaje = "";             // caso tal que el usuario haya ingresado algo y retornado al menu principal
-      limpiarFilaDeInsercion();         
-    }
-    
-  } else {
-
-    alerta = notificacion;      
-  }   
+  // mapeo de los potenciometros al eje x. 
+  paddle1 = map(analogRead(A0), 0, 1024, 2, myWidth-21) ;     // puntero del rectangulo que va de la posicion; x > 2 && x < 22
+  paddle2 = map(analogRead(A1), 0, 1024, 2, myWidth-21);
 }
 
 
-void abrirGaraje(){
-
-if(garajeCerrado && !estadoA && !estadoB && !estadoD){
-
-    if(contadorEstadoC == 0){
-
-      setBanner(mensajeDeInsersion1, 0);          
-      estadoC = true;
-      contadorEstadoC ++;      
-    
-    } else{               // si es la segunda vez que presiono el boton, devuelvase al menu principal
-
-      estadoC = false;
-      contadorEstadoC = 0;
-      errores = 0;
-
-      mensaje = "";             // caso tal que el usuario haya ingresado algo y retornado al menu principal
-      limpiarFilaDeInsercion(); 
-    }
-    
-  } else {
-
-    alerta = notificacion;      
-  }     
-}
-
-void cerrarGaraje(){
-
-if(!garajeCerrado && !estadoA && !estadoB && !estadoC){
-
-    if(contadorEstadoD == 0){
-
-      setBanner(mensajeDeInsersion1, 0);          
-      estadoD = true;
-      contadorEstadoD ++;      
-    
-    } else{               // si es la segunda vez que presiono el boton, devuelvase al menu principal
-
-      estadoD = false;
-      contadorEstadoD = 0;
-      errores = 0;
-
-      mensaje = "";             // caso tal que el usuario haya ingresado algo y retornado al menu principal
-      limpiarFilaDeInsercion(); 
-    }
-    
-  } else {
-
-    alerta = notificacion;      
-  }  
+void moveBall() {  
   
-}
-
-
-/*  */
-
-void statusDelCodigoIngresado(){            // metodo que evalua el codigo dependiedo del estado (boton seleccionado del menu)
-
-  if(estadoA ){
-
-   if(alerta.equals(vacio)){    
-      setBanner(mensajeDeInsersion, 0);    // alerta estara vacio cuando se acabe el tiempo de notificacion
-      
-      setBanner(erroresRestantes, 13);
-      int intentosRestantes = 3 - errores; 
-      String errores = (String) intentosRestantes;
-      setBanner(errores, 15);
-      
-      lcd.setRGB(200, 200, 100);
-    }
-  
-   if(!codigoIngresado.equals(vacio)){
-
-      if(codigoIngresado.equals(codigo_1)){
-  
-        alarmaActiva = true;                  // si el codigo ingresado es igual al codigo_1, activo la alarma.
-        estadoA = false;                      // reinicie al estado original y resuma ejecucion principal (StatusDelSistema). 
-  
-        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-         
-        limpiarBanner();
-
-        error = false;
-        reproducirTono();                     // repdroduzca el sonido
- 
-  
-      } else {
-  
-        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-  
-        alerta = codigoErroneo;   
-        errores ++;   
-
-        error = true;
-        reproducirTono();
-      }
-    }
+  if (ballX > myWidth - 5 || ballX < 5) {         // si la pelota se desborda en el eje x, invierta la direccion, tenga en cuenta el radio de la bola.
+    ballDirectionX = -ballDirectionX;
   }
-
-
-  if(estadoB){
-    
-    if(alerta.equals(vacio)){
-      setBanner(mensajeDeInsersion, 0);    // alerta estara vacio cuando se acabe el tiempo de notificacion  
-      lcd.setRGB(200, 200, 100);
-         
-      setBanner(erroresRestantes, 13);
-      int intentosRestantes = 3 - errores; 
-      String errores = (String) intentosRestantes;
-      setBanner(errores, 15);
-    }
-
-    if(!codigoIngresado.equals(vacio)){
-
-      if(codigoIngresado.equals(codigo_1)){
   
-        alarmaActiva = false;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
-        estadoB = false;
-        
-        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-           
-        limpiarBanner();
-
-        error = false;
-        reproducirTono();                     // repdroduzca el sonido        
-  
-      } else {
-  
-        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-  
-        alerta = codigoErroneo;
-        errores ++;      
-
-        error = true;
-        reproducirTono();                     // repdroduzca el sonido        
-
-      }
-    }
-  }
-
-
-
-  if(estadoC){
-
-    if(alerta.equals(vacio)){      
-      setBanner(mensajeDeInsersion1, 0);           // alerta estara vacio cuando se acabe el tiempo de notificacion  
-      lcd.setRGB(200, 200, 100);
-
-      setBanner(erroresRestantes, 13);
-      int intentosRestantes = 3 - errores; 
-      String errorMessage = (String) intentosRestantes;
-      setBanner(errorMessage, 15);
-    }
-
-    if(!codigoIngresado.equals(vacio)){
-
-      if(codigoIngresado.equals(codigo_2)){
-        //Abrir garaje
-        controlarServo(180,true);
-        
-        
-        garajeCerrado = false;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
-        estadoC = false;
-        
-        mensaje = "";                           // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-           
-        limpiarBanner();
-
-        error = false;
-        reproducirTono();                     // repdroduzca el sonido   
-               
-  
-      } else {                                  // si el codigo ingresado no es igual, despliego un mensaje
-  
-        mensaje = "";                           // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-  
-        alerta = codigoErroneo;
-        errores ++;   
-
-        error = true;
-        reproducirTono();                     // repdroduzca el sonido   
-      }
-    }
-    
-  }
-
-
-  if(estadoD){
-
-    if(alerta.equals(vacio)){      
-      setBanner(mensajeDeInsersion1, 0);           // alerta estara vacio cuando se acabe el tiempo de notificacion  
-      lcd.setRGB(200, 200, 100);
-         
-      setBanner(erroresRestantes, 13);
-      int intentosRestantes = 3 - errores; 
-      String errores = (String) intentosRestantes;
-      setBanner(errores, 15);
-    }
-
-    if(!codigoIngresado.equals(vacio)){
-
-      if(codigoIngresado.equals(codigo_2)){
-        //Cerrar garaje
-        controlarServo(180,false);
-        garajeCerrado = true;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
-        estadoD = false;
-        
-        mensaje = "";                           // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-           
-        limpiarBanner();
-
-        error = false;
-        reproducirTono();                     // repdroduzca el sonido   
-        
-  
-      } else {                                  // si el codigo ingresado no es igual, despliego un mensaje
-  
-        mensaje = "";                           // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-  
-        alerta = codigoErroneo;
-        errores ++;
-
-        error = true;
-        reproducirTono();                     // repdroduzca el soni                
-      }
-    }
-    
-  }
-
-  if(reinicioDelSistema){
-
-    if(alerta.equals(vacio)){      
-      setBanner(reinicio, 0);           // alerta estara vacio cuando se acabe el tiempo de notificacion  
-     // lcd.setRGB(250, 0, o);
-    }
-
-    if(!codigoIngresado.equals(vacio)){
-
-      if(codigoIngresado.equals(codigoMaestro)){
-  
-        reinicioDelSistema = false;              // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
-        configuracionCompleta = false;
-        
-        mensaje = "";                           // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-
-        codigoAlarma = false;
-        codigoApertura = false;
-           
-        limpiarBanner();
-        
-        error = false;
-        reproducirTono();                     // repdroduzca el sonido   
-  
-      } else {                                // si el codigo ingresado no es igual, despliego un mensaje
-  
-        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-  
-        alerta = codigoErroneo;
-
-        error = true;
-        reproducirTono();                     // repdroduzca el sonido   
-      }
-    }   
-  }
-
-
-  if(brecha){                                 // si hubo una brecha en el sistema, desactivela.
-
-    if(alerta.equals(vacio)){
-
-
-        setBanner(mensajeDeInsersion, 0);           // alerta estara vacio cuando se acabe el tiempo de notificacion  
-        lcd.setRGB(200, 200, 100);
-           
-        setBanner(erroresRestantes, 13);
-        int intentosRestantes = 3 - errores; 
-        String errores = (String) intentosRestantes;
-        setBanner(errores, 15);
-      }
-
-    if(!codigoIngresado.equals(vacio)){
-
-      if(codigoIngresado.equals(codigo_1)){
-        
-        
-        alarmaActiva = false;                  // si el codigo ingresado es igual al codigo_1, desactivo la alarma.
-        brecha = false; 
-        
-        mensaje = "";                         // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-           
-        limpiarBanner();
-
-        error = false;
-        reproducirTono();          
-        
-  
-      } else {                                  // si el codigo ingresado no es igual, despliego un mensaje
-  
-        mensaje = "";                           // reinicie otra vez las variables para insercion posterior
-        codigoIngresado = "";
-  
-        alerta = codigoErroneo;
-        errores ++;
-
-        error = true;
-        reproducirTono();                     // repdroduzca el soni                
-      }
-    }
-    
-  }
-    
-}
-
-
-void inicializar(){
-
-if(!configuracionCompleta){
-  
-
-  if(!codigoAlarma){                      // configure el codigo de la alarma
-    
-    setBanner(mensajeDeInsersion, 0);    
-    
-    longitud = mensaje.length();
-
-    if(longitud == 6){                    // el codigo tiene una longitud de 6 caracteres         
-
-      codigo_1 = mensaje;                 // guarde el mensaje en otra posicion global
+  if (ballY > myHeight ) {                    // si sobrepasa la cancha de cualquier jugador, reinicie la posicion de la pelota en la mitad de pantalla
+                                              // y anote el puntaje  
      
-      mensaje = "";
-      limpiarFilaDeInsercion();              // reinicie la posicion y elimine lo escrito
-      setMsg("_");  
-
-      // añadir sonido o un mensaje nuevo
-
-      codigoAlarma = true;
-    }
+      pointP1++;
+      oldPointP1 = pointP1;
+      
+      ballX = myWidth/2;                
+      ballY = myHeight/2;
+      
+      point=true;
+      mostrarPuntaje = true;
+      refresh = true;
+      
+      ballDirectionX = 1;                    // pelota de saque para el jugador 1
+      ballDirectionY = 1; 
+      
+  }else if(ballY < 0) {
+    
+      pointP2++;
+      ballX = myWidth/2;
+      ballY = myHeight/2;
+      
+      point=true;
+      mostrarPuntaje = true;
+      refresh = true;
+      
+      ballDirectionX = -1;                  // pelota de saque para el jugador 2
+      ballDirectionY = -1; 
+      
   }
 
-
-  if(!codigoApertura && codigoAlarma){            // luego de ingresar el codigo de alarma, configure la apertura
-
-
-    setBanner(mensajeDeInsersion1, 0);
-    longitud = mensaje.length();
-
-    if(longitud == 6){
-
-    codigo_2 = mensaje;
-
-    mensaje = "";      
-    limpiarFilaDeInsercion();                     // reinicie la posicion y elimine lo escrito
-    setMsg("_");    
-
-    // añadir sonido o un mensaje nuevo
+  
+  
+  if (inPaddle(ballX, ballY, paddle1, 0, 20, 5) || inPaddle2(ballX, ballY, paddle2, tft.height()-5, 20, 5)) {
     
-    codigoApertura = true;
-    configuracionCompleta = true;    
-    
-    limpiarBanner();
-    }    
-   }
-
-  }
-}
-
-void statusDelSistema(){                              // visualizacion en pantalla del estado actual de la alarma y el garage
-
-  if(errores == 3){
-
-    errores = 0;
-    reinicioDelSistema = true;                         // pare la ejecucion de cualquier estado
-    
-    estadoA = false;                      
-    estadoB = false;
-    estadoC = false;
-    estadoD = false;
-
-    mensaje = "";
-    limpiarBanner();
-    limpiarFilaDeInsercion();
-    
+    //ballDirectionX = -ballDirectionX;         
+    ballDirectionY = -ballDirectionY;         // si la pelota interactua con la barra, invierta la direccion. 
   }
   
-  if(configuracionCompleta && !estadoA &&
-        !estadoB && !estadoC && !estadoD 
-        && alerta.equals(vacio) && !reinicioDelSistema 
-         && !brecha){     
+  
+  ballX += ballDirectionX;                    // actualize la posicion de la barra
+  ballY += ballDirectionY;
 
-    estoyMenuPrincipal = true;
-    conteoBrecha = 0;
+  
+  if (oldBallX != ballX || oldBallY != ballY) {
     
-    if(alarmaActiva){
-
-      setBanner(alarmaPrendida, 0);
-      lcd.setRGB(100, 250, 0);                        // cambie el color del display al color verde
-      
-    } else {
-
-      setBanner(alarmaApagada, 0);
-      lcd.setRGB(250, 100, 0);                        // cambie el color del display al color rojo
-
-    }
-    
-    if(garajeCerrado){
-
-      setBanner(GarageCerrado,10);
-    } else {
-
-      setBanner(GarageAbierto, 10);
-    }
-
-    if(puertaCerrada){
-
-      setBanner2(PuertaCerrada,10);              
-    }else{
-
-      setBanner2(PuertaAbierta,10);                    
-    }
-    
+    tft.fill(0, 0, 0);                        // borre la ultima posicion de la pelota 
+    tft.circle(oldBallX, oldBallY, 3);
   }
-}
-
-
-void desplegar(){
-
-
-  if (!alerta.equals(vacio)){                       //  ¿ existe una alerta por mostrar ?
-
-    if(!notaPorDesplegar){                          // ¿ es la primera vez en la que vamos a guardar el tiempo?
-
-    tiempoInicial = millis();                       // si entramos la primera vez al metodo, guarde el valor inicial
-    notaPorDesplegar = true;
-    
-    limpiarBanner();
-    limpiarFilaDeInsercion();
-    lcd.setRGB(250, 20, 0);                        // cambie el color del display al color rojo
   
-  } else {
-      
-    tiempoActual= millis();
-    if(tiempoActual - tiempoInicial < tiempoDeDespliegue ){     // ¿ ya pasaron los tres segundos ?
+  tft.fill(0, 255, 0);
+  //tft.fill(255, 255, 255);                    // dibuje la pelota    
+  tft.circle(ballX, ballY, 3);
 
-      setBanner(alerta,0);
-      
-    }else{
+  oldBallX = ballX;
+  oldBallY = ballY;
 
-      alerta = "";                                              // reinicie variables para terminar ejecucion, y no seguir mostrando el mensaje      
-      notaPorDesplegar = false;
-      limpiarBanner();
-      lcd.setRGB(200, 200, 100);
-    }
-   }    
-  }    
 }
 
 
-void reproducirTono(){                              // previo al llamado de este tono, siempre debo de configurar la variable "error"
+void velocidad(){                              // calcule el nuevo factor de la velocidad segun la diferencia de movimiento en el 
+                                               // potenciometro de cualquier jugador
 
-    Timer1.initialize(500000);
-    Timer1.detachInterrupt();
-    Timer1.attachInterrupt(noMusic);    
-}
+int factor;                                       
+      
+  if(rebote1){
 
-void noMusic(){
-  
-  if(sono==2){
-    Timer1.stop();
-    sono=0;
+      movingSpeed = paddle1 - oldPaddle1;        
+  }
 
-    if(brecha){                                   // en caso tal que el sonido de la alarma este activo, reinicie el tono que anteriormente
-                                                  // se este reproduciendo
-      error = false;
-      Timer1.initialize(500000);
-      Timer1.detachInterrupt();
-      Timer1.attachInterrupt(alarma);
-    }
+  if(rebote2){
+
+     movingSpeed = paddle2 - oldPaddle2;               
+  }
+      
+  if(movingSpeed == 0){                       // registre la diferencia de potencial mas alta al momento de pegarle a la pelota.
+
+    highestFactor = 0;
     
   }else{
+
+    movingSpeed = abs(movingSpeed);
     
-    sonido();
-    sono ++;        
-  }
-}
+    if(movingSpeed > highestFactor){
 
-void reproducirAlarma(){                            // este va en el principal 
+      highestFactor = movingSpeed;
+    }
+  }  
 
-    if(alarmaActiva && configuracionCompleta){
+//  Serial.println(movingSpeed);
+
+  if(rebote1 || rebote2){                       // 3 niveles de velocidad segun la diferencia de potencial. 
+
+    rebote1 = false;
+    rebote2 = false;
+
+    if(highestFactor < 4){
       
-      if(!puertaCerrada || !garajeCerrado){
-
-          brecha = true;
-
-          if(conteoBrecha == 0){
-            
-              limpiarBanner();
-              limpiarFilaDeInsercion();
-              conteoBrecha ++;
-              estoyMenuPrincipal = false;
-
-          }
+      factor = 1;      
           
-          Timer1.initialize(500000);
-          Timer1.detachInterrupt();
-          Timer1.attachInterrupt(alarma);      
+     } else if(highestFactor < 10){
+    
+      factor = 2;
+      tieneVelocidad = true;
           
-      } 
-      /*
-      else{
+     } else {
+    
+      factor = 3;
+      tieneVelocidad = true;
+     }
 
-          brecha = false;  
-      }
-      */
-    }        
-}
-
-void alarma(){
-
-    if(brecha){
-
-      sonido();
+    if(ballDirectionX < 0){                     // si la pelota iba en decremento o incremento, mantenga la misma direccion
+  
+      ballDirectionX = -factor;
       
     } else {
 
-      Timer1.stop();
-    }  
+      ballDirectionX = factor;      
+    }
+
+    if(ballDirectionY < 0){
+
+      ballDirectionY = -factor;
+      
+    }else{
+
+      ballDirectionY = factor;
+    }
+  }
 }
+
+void dibujarCancha(){
+
+
+  tft.stroke(0,255,0);
+  tft.line(0, myHeight/2, myWidth, myHeight/2);       // linea horizontal
+  tft.line(0, 0, 0, myHeight);                        // linea vertical izquierda
+  tft.line(myWidth-1, 0, myWidth-1, myHeight);        // linea vertical derecha   
+  tft.noStroke();  
+}
+
+
+void dibujarPuntaje(){
+
+    if(refresh){
+
+      refresh = false;
+      
+      tft.fillScreen(ST7735_BLACK);            
+      dibujarCancha();   
+
+      tft.setRotation(tft.getRotation()+1);             // dibuje los puntajes del jugador.
+
+      tft.setCursor(player1ScoreX, player1ScoreY);
+      tft.setTextColor(ST7735_GREEN);
+      tft.setTextSize(10);
+      tft.print(pointP1);
+
+      tft.setCursor(player2ScoreX, player2ScoreY);
+      tft.setTextColor(ST7735_GREEN);
+      tft.setTextSize(10);
+      tft.print(pointP2);
+        
+      tft.setRotation(tft.getRotation()-1);
+
+      Timer1.initialize(1000000); 
+      Timer1.attachInterrupt(calcularPuntaje);           
+    }
+    
+}
+
+
+void calcularPuntaje(){
+  
+  
+  
+  if(contadorPuntaje == 2){
+
+    contadorPuntaje = 0;
+    mostrarPuntaje = false;          // retorne a la pantalla de juego
+
+    tft.fillScreen(ST7735_BLACK);   // borre lo escrito en pantalla
+    tft.fill(255,255,255);          // restaure el color inicial 
+    
+    Timer1.stop();
+    Timer1.detachInterrupt();
+  
+  } else{
+
+    tone(buzzer, 3951, 100); 
+    contadorPuntaje ++;    
+  }
+}
+
 
 void sonido(){
      
-  if(error){
+  //if(error){
+    
         tone(buzzer, 440, 83);
-    }else{
+  //  }else{
       
         tone(buzzer, 3951, 100); 
-    }    
+  //  }    
 }
 
-//true derecha, false izquierda
-void controlarServo(int grados,bool sentido){
+
+boolean inScore(int x, int y, int rectX, int rectY, int rectWidth, int rectHeight){ // ¿ se intersecta la pelota y el puntaje ?
+
   
-  //myServo.write(grados);
-  myServo.attach(pinServo);
-  if(sentido){
-    for(int i=0;i<=grados;i++){
-      myServo.write(i);
+  boolean result = false;  // PH  
+
+  if( (x >= (rectX-5) && x <= (rectX + rectWidth + 5)) &&   // tenga en cuenta el radio de la pelota y las posibles direcciones en la que podria entrar
+       (y >= rectY && y <= (rectY + rectHeight + 5)) ){
+
+          result = true;      
+          Serial.println("im in score!");
+       }
+  
+  return result; 
+}
+
+
+boolean inPaddle(int x, int y, int rectX, int rectY, int rectWidth, int rectHeight) {     // ¿ se intersecta la pelota y la barra ?
+  
+boolean result = false;
+
+if ((x >= (rectX - 6) && x <= (rectX + rectWidth) + 6)) {   
+
+
+    if(y == (rectY + rectHeight + 5)){
+
+      result = true;
+      rebote1 = true;
+      
+      return result;      
+            
+      //rebote2 = false;
+      //strike = true;
     }
-    
-  }else{
-   for(int i=grados;i>0;i--){
-      myServo.write(i);
-    } 
+      
+      
+      if (y < (rectY + rectHeight + 5)){            // si la barra "atrapa" la pelota, no se toma como un rebote
+        
+        if(tieneVelocidad){                         // si tiene una velocidad, la pelota es valida y no cuenta como el punto
+          
+       
+          Serial.println("tiene vel !");
+          tieneVelocidad = false;
+          ballY = rectY + rectHeight + 5;
+          
+        
+          result = true;
+          return result;
+          
+        }
+
+         result = false;         
+      }
   }
-  delay(100);
-  myServo.detach();
+  
+  return result;
+}
+
+
+boolean inPaddle2(int x, int y, int rectX, int rectY, int rectWidth, int rectHeight) {
+  
+  boolean result = false;
+
+
+if ((x >= (rectX - 6) && x <= (rectX + rectWidth) + 6)){
+
+    if(y == (rectY - 5)){
+
+        result = true;
+        rebote2 = true;
+        
+        return result;                
+        
+        //strike = true;
+        //rebote1 = false;        
+    }
+     
+    if(y > rectY - 5){
+
+      if(tieneVelocidad){                 // si tiene una velocidad diferente a la inicial, la pelota es valida y no cuenta como el punto
+
+        Serial.println("tiene vel !");
+
+        tieneVelocidad = false;
+        ballY = rectY -5 ;            
+
+        result = true;
+        return result;
+      }
+
+      result = false;
+    }
+  } 
+
+return result;
+  
+}
  
-}
-
-
-void estadoDeSensores(){
-
-    estadoDelSuiche = digitalRead(pinTouch);
-    
-    if(estadoDelSuiche == HIGH ){
-      puertaCerrada = false;   
-
-    }
-
-    if(estadoDelSuiche == LOW ){
-      puertaCerrada = true;
-      //Serial.println(estadoPuertaAnterior);
-    }  
-}
-
-
-void serialEvent() {
-  while (Serial.available()) {
-    // get the new byte:
-    char inChar = (char)Serial.read();
-    // add it to the inputString:
-    inputString += inChar;
-    // if the incoming character is a newline, set a flag
-    // so the main loop can do something about it:
-    if (inChar == '\n') {
-      stringComplete = true;
-    }
-  }
-}
-
-void setMsg(String msg){                          // imprima el mensaje en la fila 1, en la posicion de la variable global "posicion"
-  lcd.setCursor(posicion, 1);
-  lcd.print(msg);
-}
-
-
-void setBanner(String msg, int pos){              // imprima el mensaje en la fila 0, posicion "pos"
- lcd.setCursor(pos, 0);
- lcd.print(msg); 
-}
-
-void setBanner2(String msg, int pos){             // imprima el mensaje en la fila 1, desde la posicion "pos"
-
-  lcd.setCursor(pos,1);
-  lcd.print(msg);
-}
-
-void movingBanner(){
-   
-    lcd.scrollDisplayRight();  
-}
-
-void limpiarFilaDeInsercion(){                     // elimine todo lo que haya en la fila 1. UTILIZA UNA VARIABLE GLOBAL
-
-  for(posicion = 0; posicion < 16; posicion++){
-    
-    setMsg(" ");
-  }
-  
-  posicion = 0;
-}
-
-void limpiarBanner(){
-
-  for(int index = 0; index < 16; index++){          // elimine todo lo que haya en la fila 0
-
-    setBanner(" ", index);
-  }
-
-}
-
-void printMessage(String message){
-  
-  Serial.println(message);
-}
-
